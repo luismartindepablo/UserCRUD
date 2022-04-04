@@ -1,3 +1,4 @@
+# imports
 from flask import Flask
 from flask import request
 from flask import jsonify
@@ -11,26 +12,33 @@ from flask_jwt_extended import get_jwt, get_jwt_identity
 from flask_jwt_extended import create_access_token,  create_refresh_token
 
 import uuid
+
 from werkzeug.security import generate_password_hash
 from werkzeug.security import check_password_hash
 
 from functools import wraps
+
+from datetime import datetime
 from datetime import timedelta
+from datetime import timezone
 
 
+# set up app
 app = Flask(__name__)
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///User.sqlite"
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.sqlite"
+
 
 app.config["JWT_SECRET_KEY"] = "super-secret"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
-app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=30)
+app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=1)
 
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
 
 
+# models
 class User(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
@@ -40,7 +48,13 @@ class User(db.Model):
     password = db.Column(db.String(50))
     is_admin = db.Column(db.Boolean)
 
+class TokenBlocklist(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    jti = db.Column(db.String(36), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False)
 
+
+# decorators
 def admin_required():
     def wrapper(fn):
         @wraps(fn)
@@ -56,7 +70,14 @@ def admin_required():
 
     return wrapper
 
+@jwt.token_in_blocklist_loader
+def check_if_token_revoked(jwt_header, jwt_payload):
+    jti = jwt_payload["jti"]
+    token = db.session.query(TokenBlocklist.id).filter_by(jti=jti).scalar()
+    return token is not None
 
+
+# crud endpoints
 @app.route("/logup", methods=["POST"])
 def create_user():
     
@@ -100,6 +121,19 @@ def login():
     return jsonify(category="succes", access_token=access_token, refresh_token=refresh_token), 200
 
 
+@app.route("/logout", methods=["DELETE"])
+@jwt_required()
+def modify_token():
+    
+    jti = get_jwt()["jti"]
+    now = datetime.now(timezone.utc)
+
+    db.session.add(TokenBlocklist(jti=jti, created_at=now))
+    db.session.commit()
+
+    return jsonify(category="succes", msg="JWT revoked"), 200
+
+
 @app.route("/refresh", methods=["POST"])
 @jwt_required(refresh=True)
 def refresh():
@@ -112,6 +146,7 @@ def refresh():
     return jsonify(category="succes", access_token=access_token), 200
 
 
+# test endpoints
 @app.route("/unprotected")
 def unprotected():
     return jsonify(category="succes"), 200
@@ -127,6 +162,7 @@ def admin_protected():
     return jsonify(category="succes"), 200
 
 
+# main
 if __name__ == "__main__":
     db.create_all()
     admin_user = User(public_id=str(uuid.uuid4()), username="admin", usermail="admin@admin.com", password=generate_password_hash("admin", method="sha256"), is_admin=True)
