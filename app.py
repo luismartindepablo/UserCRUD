@@ -164,9 +164,10 @@ def admin_protected():
 
 # main
 if __name__ == "__main__":
+
     db.create_all()
-    admin_user = User(public_id=str(uuid.uuid4()), username="admin", usermail="admin@admin.com", password=generate_password_hash("admin", method="sha256"), is_admin=True)
-    db.session.add(admin_user)
-    db.session.commit()
+    #admin_user = User(public_id=str(uuid.uuid4()), username="admin", usermail="admin@admin.com", password=generate_password_hash("admin", method="sha256"), is_admin=True)
+    #db.session.add(admin_user)
+    #Sdb.session.commit()
 
     app.run(debug=True)
